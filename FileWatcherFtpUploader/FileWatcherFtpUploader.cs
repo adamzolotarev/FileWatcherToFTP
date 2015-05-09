@@ -53,6 +53,7 @@ namespace FileWatcherFtpUploaderConsole
 			while (numOfFtpFails < ConfigOptions.MaxNumberOfFtpFailsBeforeIgnoringFile 
 				&& !ftpUploaded)
 			{
+				FtpWebResponse response = null;
 				try
 				{
 					if (!WaitUntilReadyForFtpTransmission(fileSystemEventArgs.FullPath)) return;
@@ -71,7 +72,7 @@ namespace FileWatcherFtpUploaderConsole
 					requestStream.Write(fileContents, 0, fileContents.Length);
 					requestStream.Close();
 
-					var response = (FtpWebResponse) ftpRequest.GetResponse();
+					response = (FtpWebResponse) ftpRequest.GetResponse();
 
 					ftpUploaded = true;
 					response.Close();
@@ -83,6 +84,18 @@ namespace FileWatcherFtpUploaderConsole
 					if (!FtpDirectoryExists(ftpServerFullPath, ConfigOptions.FtpUser, ConfigOptions.FtpPassword))
 						CreateFtpDirectory(ftpServerFullPath, ConfigOptions.FtpUser, ConfigOptions.FtpPassword);
 				}
+				finally
+				{
+					CloseFtpConnection(response);
+				}
+			}
+		}
+
+		private static void CloseFtpConnection(FtpWebResponse response)
+		{
+			if (response != null && response.StatusCode != FtpStatusCode.ConnectionClosed)
+			{
+				response.Close();
 			}
 		}
 
@@ -105,23 +118,26 @@ namespace FileWatcherFtpUploaderConsole
 			var currentFtpFolder = @"ftp://" + address + @"/";
 			foreach (var dir in dirs)
 			{
-				try
-				{
-					currentFtpFolder += dir + @"/";
-					CreateFtpFolder(currentFtpFolder, ftpUser, ftpPassword);
-				}
-				catch
-				{
-				}
+				currentFtpFolder += dir + @"/";
+				CreateFtpFolder(currentFtpFolder, ftpUser, ftpPassword);
 			}
 		}
 
 		private static void CreateFtpFolder(string fullPath, string ftpUser, string ftpPassword)
 		{
-			var request = WebRequest.Create(fullPath);
-			request.Method = WebRequestMethods.Ftp.MakeDirectory;
-			request.Credentials = new NetworkCredential(ftpUser, ftpPassword);
-			request.GetResponse().Close();
+			FtpWebResponse response = null;
+			try
+			{
+				var request = WebRequest.Create(fullPath);
+				request.Method = WebRequestMethods.Ftp.MakeDirectory;
+				request.Credentials = new NetworkCredential(ftpUser, ftpPassword);
+				response = (FtpWebResponse) request.GetResponse();
+				response.Close();
+			}
+			finally
+			{
+				CloseFtpConnection(response);
+			}
 		}
 
 		private string GetUploadedFullPath()
@@ -141,12 +157,12 @@ namespace FileWatcherFtpUploaderConsole
 			ftpRequest.Credentials = new NetworkCredential(ftpUser, ftpPassword);
 			/* Specify the Type of FTP Request */
 			ftpRequest.Method = WebRequestMethods.Ftp.ListDirectoryDetails;
+			FtpWebResponse response = null;
 			try
 			{
-				using (var response = (FtpWebResponse) ftpRequest.GetResponse())
-				{
-					return true;
-				}
+				response = (FtpWebResponse) ftpRequest.GetResponse();
+				response.Close();
+				return true;
 			}
 			catch
 			{
@@ -154,6 +170,7 @@ namespace FileWatcherFtpUploaderConsole
 			}
 			finally
 			{
+				CloseFtpConnection(response);
 				ftpRequest = null;
 			}
 		}
