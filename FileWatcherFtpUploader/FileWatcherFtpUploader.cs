@@ -14,7 +14,7 @@ namespace FileWatcherFtpUploaderConsole
 	public class FileWatcherFtpUploader
 	{
 		private List<Task> _runningTasks = new List<Task>();
-		
+
 		public void Init()
 		{
 			var fileWatcher = new FileSystemWatcher
@@ -26,13 +26,13 @@ namespace FileWatcherFtpUploaderConsole
 		}
 
 		private void FileWatcherOnFileCreated(object sender, FileSystemEventArgs fileSystemEventArgs)
-		{	
+		{
 			while (_runningTasks.Count() >= ConfigOptions.MaxNumberOfFtpConnections)
 			{
 				Task.WaitAny(_runningTasks.ToArray());
 				CleanRunningThreadList();
 			}
-			
+
 			var task = Task.Factory.StartNew(() => UploadToFtp(fileSystemEventArgs));
 			_runningTasks.Add(task);
 		}
@@ -55,10 +55,10 @@ namespace FileWatcherFtpUploaderConsole
 				try
 				{
 					WaitForFileAccess(
-						fileSystemEventArgs.FullPath, 
+						fileSystemEventArgs.FullPath,
 						ConfigOptions.WaitMillisecondsBetweenTryingToReadTheFile,
 						ConfigOptions.MaxNumberOfTriesToReadTheFiles);
-					
+
 					if (!IsFileReady(fileSystemEventArgs.FullPath)) return;
 
 					ftpUploaded = SendFileUploadFtpRequest(ftpServerFullPath, fileSystemEventArgs);
@@ -71,20 +71,20 @@ namespace FileWatcherFtpUploaderConsole
 			}
 		}
 
-		private static bool ShouldTryToUpload(int numOfFtpFails, bool ftpUploaded)
+		private bool ShouldTryToUpload(int numberOfFtpFails, bool ftpUploaded)
 		{
-			return numOfFtpFails < ConfigOptions.MaxNumberOfFtpFailsBeforeIgnoringFile 
+			return numberOfFtpFails < ConfigOptions.MaxNumberOfFtpFailsBeforeIgnoringFile
 			       && !ftpUploaded;
 		}
 
 		private void HandleFtpUploadError(string ftpServerFullPath)
 		{
-				Thread.Sleep(1000);
-				if (!FtpDirectoryExists(ftpServerFullPath, ConfigOptions.FtpUser, ConfigOptions.FtpPassword))
-					CreateFtpDirectory(ftpServerFullPath, ConfigOptions.FtpUser, ConfigOptions.FtpPassword);
+			Thread.Sleep(1000);
+			if (!FtpDirectoryExists(ftpServerFullPath, ConfigOptions.FtpUser, ConfigOptions.FtpPassword))
+				CreateFtpDirectory(ftpServerFullPath, ConfigOptions.FtpUser, ConfigOptions.FtpPassword);
 		}
 
-		private static bool SendFileUploadFtpRequest(string ftpServerFullPath, FileSystemEventArgs fileSystemEventArgs)
+		private bool SendFileUploadFtpRequest(string ftpServerFullPath, FileSystemEventArgs fileSystemEventArgs)
 		{
 			var ftpRequest = (FtpWebRequest) WebRequest.Create(ftpServerFullPath + fileSystemEventArgs.Name);
 			ftpRequest.Method = WebRequestMethods.Ftp.UploadFile;
@@ -102,13 +102,10 @@ namespace FileWatcherFtpUploaderConsole
 			{
 				requestStream.Write(fileContents, 0, fileContents.Length);
 			}
-
-			using (ftpRequest.GetResponse())
-			{
-				return true;
-			}
+			ReadAndCloseResponse(ftpRequest);
+			return true;
 		}
-		
+
 		private void CreateFtpDirectory(string fullPath, string ftpUser, string ftpPassword)
 		{
 			try
@@ -121,7 +118,7 @@ namespace FileWatcherFtpUploaderConsole
 			}
 		}
 
-		private static void CreateAllSubpaths(string fullPath, string ftpUser, string ftpPassword)
+		private void CreateAllSubpaths(string fullPath, string ftpUser, string ftpPassword)
 		{
 			var address = Regex.Match(fullPath, @"^(ftp://)?(\w*|.?)*/").Value.Replace("ftp://", "").Replace("/", "");
 			var dirs = Regex.Split(fullPath.Replace(address, "").Replace("ftp://", ""), "/").Where(x => x.Length > 0);
@@ -133,13 +130,19 @@ namespace FileWatcherFtpUploaderConsole
 			}
 		}
 
-		private static void CreateFtpFolder(string fullPath, string ftpUser, string ftpPassword)
+		private void CreateFtpFolder(string fullPath, string ftpUser, string ftpPassword)
 		{
 			var request = WebRequest.Create(fullPath);
 			request.Method = WebRequestMethods.Ftp.MakeDirectory;
 			request.Credentials = new NetworkCredential(ftpUser, ftpPassword);
-			using (request.GetResponse())
+			ReadAndCloseResponse(request);
+		}
+
+		private void ReadAndCloseResponse(WebRequest request)
+		{
+			using (var response = request.GetResponse())
 			{
+				new StreamReader(response.GetResponseStream()).ReadToEnd();
 			}
 		}
 
@@ -147,9 +150,9 @@ namespace FileWatcherFtpUploaderConsole
 		{
 			var today = DateTime.Now;
 			return ConfigurationManager.AppSettings["FtpServer"] +
-				   (ConfigOptions.ShouldUseYearAsFtpPath ? (today.Year + @"/") : "") +
-				   (ConfigOptions.ShouldUseMonthAsFtpPath ? (today.Month + @"/") : "") +
-				   (ConfigOptions.ShouldUseDayAsFtpPath ? (today.Day + @"/") : "");
+			       (ConfigOptions.ShouldUseYearAsFtpPath ? (today.Year + @"/") : "") +
+			       (ConfigOptions.ShouldUseMonthAsFtpPath ? (today.Month + @"/") : "") +
+			       (ConfigOptions.ShouldUseDayAsFtpPath ? (today.Day + @"/") : "");
 		}
 
 		public bool FtpDirectoryExists(string ftpDirectoryPath, string ftpUser, string ftpPassword)
@@ -157,26 +160,27 @@ namespace FileWatcherFtpUploaderConsole
 			var ftpRequest = WebRequest.Create(ftpDirectoryPath);
 			ftpRequest.Credentials = new NetworkCredential(ftpUser, ftpPassword);
 			ftpRequest.Method = WebRequestMethods.Ftp.ListDirectoryDetails;
-			
+
 			try
 			{
-				using (ftpRequest.GetResponse())
-				{
-					return true;
-				}
+				ReadAndCloseResponse(ftpRequest);
+				return true;
 			}
 			catch
 			{
 				return false;
 			}
 		}
-		
-		private void WaitForFileAccess(string fullFileName, int millisecondsToWait, int maxNumberOfTries)
+
+		private void WaitForFileAccess(
+			string fullFileName,
+			int millisecondsToWaitBetweenReadTries,
+			int maxNumberOfTries)
 		{
 			var numberOfTries = 0;
 			while (numberOfTries < maxNumberOfTries && !IsFileReady(fullFileName))
 			{
-				Thread.Sleep(millisecondsToWait);
+				Thread.Sleep(millisecondsToWaitBetweenReadTries);
 				numberOfTries++;
 			}
 		}
