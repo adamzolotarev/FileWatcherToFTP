@@ -144,6 +144,12 @@ namespace FileWatcherFtpUploaderConsole
 			{
 				new StreamReader(response.GetResponseStream()).ReadToEnd();
 			}
+			GiveTimeToProperlyCloseConnection();
+		}
+
+		private static void GiveTimeToProperlyCloseConnection()
+		{
+			Thread.Sleep(5000);
 		}
 
 		private string GetUploadedFullPath()
