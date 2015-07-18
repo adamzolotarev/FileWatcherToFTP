@@ -125,8 +125,15 @@ namespace FileWatcherFtpUploaderConsole
 			var currentFtpFolder = @"ftp://" + address + @"/";
 			foreach (var dir in dirs)
 			{
-				currentFtpFolder += dir + @"/";
-				CreateFtpFolder(currentFtpFolder, ftpUser, ftpPassword);
+				try
+				{
+					currentFtpFolder += dir + @"/";
+					CreateFtpFolder(currentFtpFolder, ftpUser, ftpPassword);
+				}
+				catch
+				{
+					//ignore, because can throw when trying to recreate existing path.
+				}
 			}
 		}
 
